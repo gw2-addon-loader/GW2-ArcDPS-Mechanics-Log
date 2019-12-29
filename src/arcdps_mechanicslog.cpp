@@ -31,18 +31,13 @@ static int changeExportPath(ImGuiTextEditCallbackData const *data);
 void readArcExports();
 void parseIni();
 void writeIni();
-bool modsPressed();
 bool canMoveWindows();
-bool canClickWindows();
 
 typedef uint64_t(*arc_export_func_u64)();
-auto arc_dll = LoadLibraryA(TEXT("d3d9.dll"));
+auto arc_dll = LoadLibraryA(TEXT("gw2addon_arcdps.dll"));
 auto arc_export_e6 = (arc_export_func_u64)GetProcAddress(arc_dll, "e6");
-bool arc_hide_all = false;
-bool arc_panel_always_draw = false;
 bool arc_movelock_altui = false;
 bool arc_clicklock_altui = false;
-bool arc_window_fastclose = false;
 
 auto arc_export_e7 = (arc_export_func_u64)GetProcAddress(arc_dll, "e7");
 DWORD arc_global_mod1 = 0;
@@ -134,11 +129,11 @@ uintptr_t mod_wnd(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	auto const io = &ImGui::GetIO();
 
-	switch (uMsg)
+	if (uMsg == WM_KEYUP || uMsg == WM_KEYDOWN || uMsg == WM_SYSKEYUP || uMsg == WM_SYSKEYDOWN)
 	{
-		case WM_KEYUP:
+		const int vkey = (int)wParam;
+		if (uMsg == WM_KEYUP || uMsg == WM_SYSKEYUP)
 		{
-			const int vkey = (int)wParam;
 			io->KeysDown[vkey] = 0;
 			if (vkey == VK_CONTROL)
 			{
@@ -152,11 +147,9 @@ uintptr_t mod_wnd(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 			{
 				io->KeyShift = false;
 			}
-			break;
 		}
-		case WM_KEYDOWN:
+		else
 		{
-			const int vkey = (int)wParam;
 			io->KeysDown[vkey] = 1;
 			if (vkey == VK_CONTROL)
 			{
@@ -170,54 +163,14 @@ uintptr_t mod_wnd(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 			{
 				io->KeyShift = true;
 			}
-			break;
 		}
-		case WM_SYSKEYUP:
+	}
+	else if (uMsg == WM_ACTIVATEAPP) {
+		if (!wParam)
 		{
-			const int vkey = (int)wParam;
-			io->KeysDown[vkey] = 0;
-			if (vkey == VK_CONTROL)
-			{
-				io->KeyCtrl = false;
-			}
-			else if (vkey == VK_MENU)
-			{
-				io->KeyAlt = false;
-			}
-			else if (vkey == VK_SHIFT)
-			{
-				io->KeyShift = false;
-			}
-			break;
+			io->KeysDown[arc_global_mod1] = false;
+			io->KeysDown[arc_global_mod2] = false;
 		}
-		case WM_SYSKEYDOWN:
-		{
-			const int vkey = (int)wParam;
-			io->KeysDown[vkey] = 1;
-			if (vkey == VK_CONTROL)
-			{
-				io->KeyCtrl = true;
-			}
-			else if (vkey == VK_MENU)
-			{
-				io->KeyAlt = true;
-			}
-			else if (vkey == VK_SHIFT)
-			{
-				io->KeyShift = true;
-			}
-			break;
-		}
-		case WM_ACTIVATEAPP:
-		{
-			if (!wParam)
-			{
-				io->KeysDown[arc_global_mod1] = false;
-				io->KeysDown[arc_global_mod2] = false;
-			}
-			break;
-		}
-		break;
 	}
 
 	if (io->KeysDown[arc_global_mod1] && io->KeysDown[arc_global_mod2])
@@ -448,12 +401,8 @@ void readArcExports()
 	uint64_t e6_result = arc_export_e6();
 	uint64_t e7_result = arc_export_e7();
 
-	arc_hide_all = (e6_result & 0x01);
-	arc_panel_always_draw = (e6_result & 0x02);
 	arc_movelock_altui = (e6_result & 0x04);
 	arc_clicklock_altui = (e6_result & 0x08);
-	arc_window_fastclose = (e6_result & 0x10);
-
 
 	uint16_t* ra = (uint16_t*)&e7_result;
 	if (ra)
@@ -539,13 +488,6 @@ void writeIni()
 	rc = mechanics_ini.SaveFile("addons\\arcdps\\arcdps_mechanics.ini");
 }
 
-bool modsPressed()
-{
-	auto io = &ImGui::GetIO();
-
-	return io->KeysDown[arc_global_mod1] && io->KeysDown[arc_global_mod2];
-}
-
 bool canMoveWindows()
 {
 	if (!arc_movelock_altui)
@@ -554,18 +496,8 @@ bool canMoveWindows()
 	}
 	else
 	{
-		return modsPressed();
-	}
-}
+		auto io = &ImGui::GetIO();
+		return io->KeysDown[arc_global_mod1] && io->KeysDown[arc_global_mod2];
 
-bool canClickWindows()
-{
-	if (!arc_clicklock_altui)
-	{
-		return true;
-	}
-	else
-	{
-		return modsPressed();
 	}
 }
