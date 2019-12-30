@@ -28,10 +28,21 @@ uintptr_t mod_combat(cbtevent* ev, ag* src, ag* dst, char* skillname, uint64_t i
 uintptr_t mod_imgui(uint32_t not_charsel_or_loading);
 uintptr_t mod_options();
 static int changeExportPath(ImGuiTextEditCallbackData const *data);
+void readArcExports();
 void parseIni();
 void writeIni();
+bool canMoveWindows();
 
 typedef uint64_t(*arc_export_func_u64)();
+auto arc_dll = LoadLibraryA(TEXT("gw2addon_arcdps.dll"));
+auto arc_export_e6 = (arc_export_func_u64)GetProcAddress(arc_dll, "e6");
+bool arc_movelock_altui = false;
+bool arc_clicklock_altui = false;
+
+auto arc_export_e7 = (arc_export_func_u64)GetProcAddress(arc_dll, "e7");
+DWORD arc_global_mod1 = 0;
+DWORD arc_global_mod2 = 0;
+DWORD arc_global_mod_multi = 0;
 
 bool show_app_log = false;
 AppLog log_ui;
@@ -153,6 +164,18 @@ uintptr_t mod_wnd(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 				io->KeyShift = true;
 			}
 		}
+	}
+	else if (uMsg == WM_ACTIVATEAPP) {
+		if (!wParam)
+		{
+			io->KeysDown[arc_global_mod1] = false;
+			io->KeysDown[arc_global_mod2] = false;
+		}
+	}
+
+	if (io->KeysDown[arc_global_mod1] && io->KeysDown[arc_global_mod2])
+	{
+		if (io->KeysDown[log_key] || io->KeysDown[chart_key]) return 0;
 	}
 
 	return uMsg;
@@ -304,14 +327,16 @@ uintptr_t mod_combat(cbtevent* ev, ag* src, ag* dst, char* skillname, uint64_t i
 
 void ShowMechanicsLog(bool* p_open)
 {
-	if(show_app_log) log_ui.draw("Mechanics Log", p_open, ImGuiWindowFlags_NoCollapse, &tracker);
+	if(show_app_log) log_ui.draw("Mechanics Log", p_open, ImGuiWindowFlags_NoCollapse
+		| (!canMoveWindows() ? ImGuiWindowFlags_NoMove : 0), &tracker);
 }
 
 void ShowMechanicsChart(bool* p_open)
 {
 	if (show_app_chart)
 	{
-		chart_ui.draw(&tracker, "Mechanics Chart", p_open, ImGuiWindowFlags_NoCollapse, true);
+		chart_ui.draw(&tracker, "Mechanics Chart", p_open, ImGuiWindowFlags_NoCollapse
+			| (!canMoveWindows() ? ImGuiWindowFlags_NoMove : 0), arc_clicklock_altui);
 	}
 }
 
@@ -319,24 +344,29 @@ void ShowMechanicsOptions(bool* p_open)
 {
 	if (show_options)
 	{
-		options_ui.draw(&tracker, "Mechanics Options", p_open, ImGuiWindowFlags_NoCollapse);
+		options_ui.draw(&tracker, "Mechanics Options", p_open, ImGuiWindowFlags_NoCollapse
+			| (!canMoveWindows() ? ImGuiWindowFlags_NoMove : 0));
 	}
 }
 
 uintptr_t mod_imgui(uint32_t not_charsel_or_loading)
 {
-
+	readArcExports();
+	
 	if (!not_charsel_or_loading) return 0;
 
 	auto const io = &ImGui::GetIO();
 
-	if (ImGui::IsKeyPressed(log_key))
+	if (io->KeysDown[arc_global_mod1] && io->KeysDown[arc_global_mod2])
 	{
-		show_app_log = !show_app_log;
-	}
-	if (ImGui::IsKeyPressed(chart_key))
-	{
-		show_app_chart = !show_app_chart;
+		if (ImGui::IsKeyPressed(log_key))
+		{
+			show_app_log = !show_app_log;
+		}
+		if (ImGui::IsKeyPressed(chart_key))
+		{
+			show_app_chart = !show_app_chart;
+		}
 	}
 	
 	ShowMechanicsLog(&show_app_log);
@@ -364,6 +394,23 @@ uintptr_t mod_options()
 static int changeExportPath(ImGuiTextEditCallbackData const *data)
 {
 	chart_ui.export_dir = data->Buf;
+}
+
+void readArcExports()
+{
+	uint64_t e6_result = arc_export_e6();
+	uint64_t e7_result = arc_export_e7();
+
+	arc_movelock_altui = (e6_result & 0x04);
+	arc_clicklock_altui = (e6_result & 0x08);
+
+	uint16_t* ra = (uint16_t*)&e7_result;
+	if (ra)
+	{
+		arc_global_mod1 = ra[0];
+		arc_global_mod2 = ra[1];
+		arc_global_mod_multi = ra[2];
+	}
 }
 
 void parseIni()
@@ -439,4 +486,18 @@ void writeIni()
 	}
 
 	rc = mechanics_ini.SaveFile("addons\\arcdps\\arcdps_mechanics.ini");
+}
+
+bool canMoveWindows()
+{
+	if (!arc_movelock_altui)
+	{
+		return true;
+	}
+	else
+	{
+		auto io = &ImGui::GetIO();
+		return io->KeysDown[arc_global_mod1] && io->KeysDown[arc_global_mod2];
+
+	}
 }
